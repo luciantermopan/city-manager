@@ -19,6 +19,7 @@ typedef struct report
     int severity_level; // integer: 1 = minor, 2 = moderate, 3 = critical
 }Report;
 
+// have to add the symlink() behavoiur in this function !!!
 int create_dir_and_set_perm(const char *district_id)
 {
     printf("%s\n", district_id);
@@ -99,9 +100,8 @@ void add(char *district_id, Report rep)
 
 void convert_permissions(char *result, const char *FILE_PATH)
 {
-    char str[10] = {0};
+    char str[10];
     int i = 0;
-    str[i] = '.'; // to do later !!!!
     struct stat filedet;
     lstat(FILE_PATH, &filedet);
     if(filedet.st_mode & S_IRUSR) str[i] = 'r'; else str[i] = '-'; i++;
@@ -115,28 +115,88 @@ void convert_permissions(char *result, const char *FILE_PATH)
     if(filedet.st_mode & S_IROTH) str[i] = 'r'; else str[i] = '-'; i++;
     if(filedet.st_mode & S_IWOTH) str[i] = 'w'; else str[i] = '-'; i++;
     if(filedet.st_mode & S_IXOTH) str[i] = 'x'; else str[i] = '-'; i++;
-
+    
+    str[i] = '\0';
+    
     strcpy(result, str);
     return;
 }
 
-void list()
+void list(const char *district_id)
 {
-    /* MACROS:
-    S_IRUSR: Read permission (owner)
-    S_IWUSR: Write permission (owner)
-    S_IXUSR: Execute permission (owner)
-    (Similar constants exist for Group GRP and Others OTH) 
-    */
+    char path[100];
+    sprintf(path, "%s/reports.dat", district_id);
+    struct stat file_det;
+    lstat(path, &file_det);
+    // print file permissions
+    char str[10];
+    convert_permissions(str, path);
+    printf("%s\n", str);
+    // file size and last modification time
+    // file_det.st_size field (off_t type -> signed int on linux -> 4 bytes)
+    // file_det.st_mtime field (time_t type -> no. of seconds -> so i need to work it in HH:MM:SS)
+    printf("Size of %s/reports.dat: %d bytes\n", district_id, (int)file_det.st_size);
+    struct tm *time_data = localtime(&file_det.st_mtime);
+    char time[20];
+    // use strftime(char *str, size_t maxsize, const char *format, const struct tm *timeptr) function
+    strftime(time, sizeof(time), "%x %X", time_data);
+    printf("Time of last modify: %s\n", time);
+
+    // open file for reading
+    int fd = open(path, O_RDWR);
+    if(fd == -1)
+    {
+        printf("File %s does not exist\n", path);
+        exit(-1);
+    }
+    //parse file and read sizeof(Report) bytes
+    Report r;
+    while( (sizeof(Report)) == (read(fd, &r, sizeof(Report))) )
+    {
+        time_data = localtime(&r.timestamp);
+        strftime(time, sizeof(time), "%x %X", time_data);
+        printf("Report ID: %d\nInspector Name: %s\nGPS_N: %f, GPS_E: %f\nCategory: %s\nSeverity: %d\nDate: %s\nDescription: %s\n",
+            r.id, r.inspector_name, r.GPS_N, r.GPS_E, r.category, r.severity_level, time, r.description);
+    }
+
+    close(fd);
     return;
 }
 
-void view()
+void view(const char *district_id, int report_id)
 {
+    // id e generat random, acum trebuie sa il caut manual, trecut prin tot
+    char path[100];
+    sprintf(path, "%s/reports.dat", district_id);
+    int fd = open(path, O_RDWR);
+    if(fd == -1)
+    {
+        printf("File %s does not exist\n", path);
+        exit(-1);
+    }
+    Report r;
+    int found = 0;
+    while( (sizeof(Report)) == (read(fd, &r, sizeof(Report))) && (found==0))
+    {
+        if(r.id == report_id)
+        {
+            found = 1;
+            struct tm *time_data = localtime(&r.timestamp);
+            char time[20];
+            strftime(time, sizeof(time), "%x %X", time_data);
+            printf("Report ID: %d\nInspector Name: %s\nGPS_N: %f, GPS_E: %f\nCategory: %s\nSeverity: %d\nDate: %s\nDescription: %s\n",
+            r.id, r.inspector_name, r.GPS_N, r.GPS_E, r.category, r.severity_level, time, r.description);
+        }
+    }
+    if(found==0)
+    {
+        printf("Report with id '%d' could not be found!\n", report_id);
+        exit(-1);
+    }
     return;
 }
 
-void remove_report()
+void remove_report(const char *district_id, int report_id)
 {
     return;
 }
@@ -213,13 +273,12 @@ int main(int argc, char *argv[])
     r1.GPS_E = 26.1025;
     r1.severity_level = 2;
     
-    // add(argv[1], r1);
+    // add(argv[1], r1); // need to modify
 
-    // update_threshold("micro15", 3);
+    // update_threshold("micro15", 3); //need to modify
 
-    char str[11];
-    convert_permissions(str, "micro15/reports.dat");
-    str[10] = '\0';
-    printf("%s", str);
+    // list("micro15"); // done!
+    // view("micro15", 384);// done!
+
     return 0;
 }

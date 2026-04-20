@@ -47,7 +47,6 @@ int create_dir_and_set_perm(const char *district_id)
     fd = open(path, O_CREAT, 0644);
     close(fd);
 
-
     return 0;
 }
 
@@ -198,6 +197,83 @@ void view(const char *district_id, int report_id)
 
 void remove_report(const char *district_id, int report_id)
 {
+    int records_counter = 0;
+    int delete_position = -1; // assume the record does not exist
+
+    char path[100];
+    sprintf(path, "%s/reports.dat", district_id);
+    int fd = open(path, O_RDWR);
+    if(fd == -1)
+    {
+        printf("File %s does not exist\n", path);
+        exit(-1);
+    }
+    
+    Report r;
+    while( (sizeof(Report)) == (read(fd, &r, sizeof(Report))))
+    {
+        if(report_id == r.id)
+        {
+            delete_position = records_counter * sizeof(Report);
+        }
+        records_counter++;
+    }
+    if(records_counter == 0)
+    {
+        printf("Reports file has no records!\n");
+        exit(-1);
+    }
+    if(delete_position == -1)
+    {
+        printf("Report with id '%d' could not be found!\n", report_id);
+        exit(-1);
+    }
+    
+    // last record 
+    if(delete_position == (records_counter-1)*sizeof(Report))
+    {
+        if(ftruncate(fd, delete_position) != 0)
+        {
+            printf("There was a problem truncating the file!\n");
+            if(fd)
+                close(fd);
+            exit(-1);
+        }
+    }
+    // somewhere before
+    else
+    {
+        int size = (records_counter-1)*sizeof(Report);
+        int writing_pos = delete_position;
+        int reading_pos = writing_pos + sizeof(Report);
+        // moved the file cursor to the position of deletion
+        // lseek(fd, writing_pos, SEEK_SET);
+        lseek(fd, reading_pos, SEEK_SET);
+        while(reading_pos <= size)
+        {
+            if((sizeof(Report)) == (read(fd, &r, sizeof(Report))))
+            {
+                lseek(fd, writing_pos, SEEK_SET);
+                if( (write(fd, &r, sizeof(Report))) != sizeof(Report))
+                {
+                    printf("There was a problem deleting the record!\n");
+                    exit(-1);
+                }
+                writing_pos += sizeof(Report);
+                reading_pos += sizeof(Report);
+                lseek(fd, reading_pos, SEEK_SET);
+            }
+        }
+        if(ftruncate(fd, size) != 0)
+        {
+            printf("There was a problem truncating the file\n");
+            if(fd) 
+                close(fd);
+            exit(-1);
+        }
+    }
+    if(fd) 
+        close(fd);
     return;
 }
 void update_threshold(const char *district_id, int severity_value)
@@ -262,23 +338,29 @@ void filter()
 
 int main(int argc, char *argv[])
 {
+    int del_id = 0;
     // create a fake report for now..
     Report r1 = {0};
     strcpy(r1.inspector_name, "tester");
     strcpy(r1.category, "road");
     strcpy(r1.description, "pothole");
-    r1.id = rand() % 1000;
+    // r1.id = rand() % 1000;
+    r1.id = 384;
+    del_id = r1.id;
     r1.timestamp = time(NULL);
     r1.GPS_N = 44.4268;
     r1.GPS_E = 26.1025;
     r1.severity_level = 2;
     
-    // add(argv[1], r1); // need to modify
+    add(argv[1], r1); // need to modify
 
     // update_threshold("micro15", 3); //need to modify
 
-    // list("micro15"); // done!
+    list("micro15"); // done!
     // view("micro15", 384);// done!
+
+    // remove_report("micro15", del_id);
+    // list("micro15");
 
     return 0;
 }

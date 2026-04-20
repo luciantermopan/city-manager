@@ -97,8 +97,37 @@ void add(char *district_id, Report rep)
     return;
 }
 
+void convert_permissions(char *result, const char *FILE_PATH)
+{
+    char str[10] = {0};
+    int i = 0;
+    str[i] = '.'; // to do later !!!!
+    struct stat filedet;
+    lstat(FILE_PATH, &filedet);
+    if(filedet.st_mode & S_IRUSR) str[i] = 'r'; else str[i] = '-'; i++;
+    if(filedet.st_mode & S_IWUSR) str[i] = 'w'; else str[i] = '-'; i++;
+    if(filedet.st_mode & S_IXUSR) str[i] = 'x'; else str[i] = '-'; i++;
+
+    if(filedet.st_mode & S_IRGRP) str[i] = 'r'; else str[i] = '-'; i++;
+    if(filedet.st_mode & S_IWGRP) str[i] = 'w'; else str[i] = '-'; i++;
+    if(filedet.st_mode & S_IXGRP) str[i] = 'x'; else str[i] = '-'; i++;
+
+    if(filedet.st_mode & S_IROTH) str[i] = 'r'; else str[i] = '-'; i++;
+    if(filedet.st_mode & S_IWOTH) str[i] = 'w'; else str[i] = '-'; i++;
+    if(filedet.st_mode & S_IXOTH) str[i] = 'x'; else str[i] = '-'; i++;
+
+    strcpy(result, str);
+    return;
+}
+
 void list()
 {
+    /* MACROS:
+    S_IRUSR: Read permission (owner)
+    S_IWUSR: Write permission (owner)
+    S_IXUSR: Execute permission (owner)
+    (Similar constants exist for Group GRP and Others OTH) 
+    */
     return;
 }
 
@@ -186,7 +215,11 @@ int main(int argc, char *argv[])
     
     // add(argv[1], r1);
 
-    update_threshold("micro15", 3); // function works, gotta add feature
+    // update_threshold("micro15", 3);
 
+    char str[11];
+    convert_permissions(str, "micro15/reports.dat");
+    str[10] = '\0';
+    printf("%s", str);
     return 0;
 }

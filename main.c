@@ -97,6 +97,80 @@ void add(char *district_id, Report rep)
     return;
 }
 
+void list()
+{
+    return;
+}
+
+void view()
+{
+    return;
+}
+
+void remove_report()
+{
+    return;
+}
+void update_threshold(const char *district_id, int severity_value)
+{
+    /*update_threshold <district_id> <value> 
+    Update the severity threshold in district.cfg.
+    Manager role only. Before writing, call lstat() on district.cfg and
+    verify the permission bits match 640; if someone has changed them, 
+    refuse and print a diagnostic.*/
+    
+    DIR *current_dir = NULL;
+    current_dir = opendir(".");
+
+    struct dirent *directory_element = NULL;
+    // parse the directory to modify the threshold value
+    // in the district.cfg file of the specified district
+    int dest_exists = 0;
+    while((directory_element = readdir(current_dir)) != NULL)
+    {
+        // found the right district directory
+        if(strcmp(directory_element->d_name, district_id)==0)
+        {
+            dest_exists = 1;
+            char path[100];
+            sprintf(path, "%s/district.cfg", district_id);
+            struct stat file_det;
+            lstat(path, &file_det);
+            // checking file permission bits
+            if((file_det.st_mode & 0777) != 0640)
+            {
+                printf("Incorrect permissions for district.cfg in %s", district_id);
+                exit(-1);
+            }
+
+            int fd = open(path, O_RDWR);
+            if(fd != -1) 
+            {
+                char line[50];
+                sprintf(line, "severity_threshold = %d", severity_value);
+                write(fd, line, sizeof("severity_threshold = 3")-1);
+                close(fd);
+            }
+        }
+    }
+    if(dest_exists == 0)
+    {
+        // means that there's no such district logged
+        // and we cannot write to said non-existent district
+        printf("Specified district does not exist! '%s'\n", district_id);
+        exit(-1);
+    }
+
+    if(current_dir)
+        closedir(current_dir);
+    return;
+}
+
+void filter()
+{
+    return;
+}
+
 int main(int argc, char *argv[])
 {
     // create a fake report for now..
@@ -110,7 +184,9 @@ int main(int argc, char *argv[])
     r1.GPS_E = 26.1025;
     r1.severity_level = 2;
     
-    add(argv[1], r1);
+    // add(argv[1], r1);
+
+    update_threshold("micro15", 3); // function works, gotta add feature
 
     return 0;
 }

@@ -8,6 +8,23 @@
 #include <time.h>
 #include <stdlib.h>
 
+typedef enum
+{
+    ROLE_INSPECTOR=0,
+    ROLE_MANAGER=1
+}Role;
+
+typedef struct 
+{
+    Role role;
+    char user[20];
+    char command[10];
+    char district_id[20];
+    int report_id;
+    int threshold_value;
+    char *filter_conditions[10];
+}Command_arguments_t;
+
 typedef struct report
 {
     char inspector_name[20];
@@ -96,7 +113,6 @@ void add(char *district_id, Report rep)
         closedir(current_dir);
     return;
 }
-
 void convert_permissions(char *result, const char *FILE_PATH)
 {
     char str[10];
@@ -120,7 +136,6 @@ void convert_permissions(char *result, const char *FILE_PATH)
     strcpy(result, str);
     return;
 }
-
 void list(const char *district_id)
 {
     char path[100];
@@ -161,7 +176,6 @@ void list(const char *district_id)
     close(fd);
     return;
 }
-
 void view(const char *district_id, int report_id)
 {
     // id e generat random, acum trebuie sa il caut manual, trecut prin tot
@@ -194,7 +208,6 @@ void view(const char *district_id, int report_id)
     }
     return;
 }
-
 void remove_report(const char *district_id, int report_id)
 {
     int records_counter = 0;
@@ -330,37 +343,120 @@ void update_threshold(const char *district_id, int severity_value)
         closedir(current_dir);
     return;
 }
-
 void filter()
 {
     return;
 }
 
+int parse_arguments(int argc, char *argv[], Command_arguments_t *cArgs)
+{
+    if(strcmp(argv[1], "--help")==0)
+    {   
+        return 0;
+    }
+    if(strcmp(argv[1], "--role")!=0)
+    {
+        // printf("here1\n");
+        return -1;
+    }
+    else
+    {
+        if(strstr(argv[2], "--")!=NULL)
+        {
+            // third argument is not valid
+            // printf("here2\n");
+            return -1;
+        }
+        if(strcmp(argv[2], "inspector")==0) 
+        {
+            cArgs->role = ROLE_INSPECTOR;
+        }
+        if(strcmp(argv[2], "manager")==0) 
+        {
+            cArgs->role = ROLE_MANAGER;
+        }
+    }
+    if(strcmp(argv[3], "--user")!=0)
+    {   
+        // printf("here3\n");
+        return -1;
+    }
+    else
+    {
+        if(strstr(argv[4], "--")!=NULL)
+        {
+            // fifth argument is not valid
+            // printf("here4\n");
+            return -1;
+        }
+        strcpy(cArgs->user, argv[4]);
+    }
+    if(strstr(argv[5], "--")==NULL)
+    {
+        // printf("here5\n");
+        return -1;
+    }
+    else
+    {
+        if(strcmp(argv[5], "--add")) strcpy(cArgs->command,"--add");
+        else if(strcmp(argv[5], "--help")) strcpy(cArgs->command,"--help");
+        else if(strcmp(argv[5], "--list")) strcpy(cArgs->command,"--list");
+        else if(strcmp(argv[5], "--view")) strcpy(cArgs->command,"--view");
+        else if(strcmp(argv[5], "--remove_report")) strcpy(cArgs->command,"--remove_report");
+        else if(strcmp(argv[5], "--update_threshold")) strcpy(cArgs->command,"--update_threshold");
+        else if(strcmp(argv[5], "--filter")) strcpy(cArgs->command,"--filter");
+        else 
+        {
+            // printf("here6\n");
+            return -1;
+        }
+    } 
+    // printf("hah, you've got to this point!\n");
+    return 0;
+}
+
+void help()
+{
+    // print instructions on program syntax
+    printf("Usage: city_manager --role <inspector|manager> --user <username> --<command> [args]\n");
+    printf("Commands:\n");
+    printf("  --add <district_id>\n");
+    printf("  --list <district_id>\n");
+    printf("  --view <district_id> <report_id>\n");
+    printf("  --remove_report <district_id> <report_id>\n");
+    printf("  --update_threshold <district_id> <value>\n");
+    printf("  --filter <district_id> <condition1> [condition2 ...]\n");
+    printf("  --help\n");
+    return;
+}
+
+int check_operation_permission(const char *filepath, Role role, const char *operation)
+{
+    
+    return 0;
+}
+
 int main(int argc, char *argv[])
 {
-    int del_id = 0;
-    // create a fake report for now..
-    Report r1 = {0};
-    strcpy(r1.inspector_name, "tester");
-    strcpy(r1.category, "road");
-    strcpy(r1.description, "pothole");
-    // r1.id = rand() % 1000;
-    r1.id = 384;
-    del_id = r1.id;
-    r1.timestamp = time(NULL);
-    r1.GPS_N = 44.4268;
-    r1.GPS_E = 26.1025;
-    r1.severity_level = 2;
+    // minimum number of arguments
+    if(argc < 6)
+    {
+        printf("Incorect parameter structure!\n");
+        help();
+        exit(-1);
+    }
+    Command_arguments_t commandArgs;
+    if(parse_arguments(argc, argv, &commandArgs) != 0)
+    {
+        printf("Error running the program!\nCheck calling arguments!\n");
+    }
+    Report r;
+    if(strcmp(commandArgs.command,"--add")==0 || strcmp(commandArgs.command,"--list")==0
+    || strcmp(commandArgs.command,"--view")==0 || strcmp(commandArgs.command,"--remove_report")==0
+    || strcmp(commandArgs.command,"--remove_report")==0 || strcmp(commandArgs.command,"--update_threshold")==0)
+    {
+        strcpy(commandArgs.district_id, argv[6]);
+    }
     
-    add(argv[1], r1); // need to modify
-
-    // update_threshold("micro15", 3); //need to modify
-
-    list("micro15"); // done!
-    // view("micro15", 384);// done!
-
-    // remove_report("micro15", del_id);
-    // list("micro15");
-
     return 0;
 }

@@ -18,7 +18,7 @@ typedef struct
 {
     Role role;
     char user[20];
-    char command[10];
+    char command[20];
     char district_id[20];
     int report_id;
     int threshold_value;
@@ -228,85 +228,87 @@ void view(const char *district_id, int report_id)
 }
 void remove_report(const char *district_id, int report_id)
 {
-    int records_counter = 0;
-    int delete_position = -1; // assume the record does not exist
-
     char path[100];
     sprintf(path, "%s/reports.dat", district_id);
     int fd = open(path, O_RDWR);
-    if(fd == -1)
+    if (fd==-1)
     {
         printf("File %s does not exist\n", path);
         exit(-1);
     }
-    
+
     Report r;
-    while( (sizeof(Report)) == (read(fd, &r, sizeof(Report))))
+    int record_count = 0;
+    int delete_position = -1;
+
+    // looking for the record
+    while (read(fd, &r, sizeof(Report)) == sizeof(Report))
     {
-        if(report_id == r.id)
+        if (r.id == report_id)
         {
-            delete_position = records_counter * sizeof(Report);
+            delete_position = record_count*sizeof(Report);
         }
-        records_counter++;
+        record_count++;
     }
-    if(records_counter == 0)
+
+    if (record_count == 0)
     {
         printf("Reports file has no records!\n");
+        close(fd);
         exit(-1);
     }
-    if(delete_position == -1)
+
+    if (delete_position == -1)
     {
         printf("Report with id '%d' could not be found!\n", report_id);
+        close(fd);
         exit(-1);
     }
-    
-    // last record 
-    if(delete_position == (records_counter-1)*sizeof(Report))
+
+    int last_position = (record_count-1)*sizeof(Report);
+
+    // last record
+    if (delete_position == last_position)
     {
-        if(ftruncate(fd, delete_position) != 0)
+        if (ftruncate(fd, delete_position) != 0)
         {
             printf("There was a problem truncating the file!\n");
-            if(fd)
-                close(fd);
+            close(fd);
             exit(-1);
         }
-    }
-    // somewhere before
-    else
-    {
-        int size = (records_counter-1)*sizeof(Report);
-        int writing_pos = delete_position;
-        int reading_pos = writing_pos + sizeof(Report);
-        // moved the file cursor to the position of deletion
-        // lseek(fd, writing_pos, SEEK_SET);
-        lseek(fd, reading_pos, SEEK_SET);
-        while(reading_pos <= size)
-        {
-            if((sizeof(Report)) == (read(fd, &r, sizeof(Report))))
-            {
-                lseek(fd, writing_pos, SEEK_SET);
-                if( (write(fd, &r, sizeof(Report))) != sizeof(Report))
-                {
-                    printf("There was a problem deleting the record!\n");
-                    exit(-1);
-                }
-                writing_pos += sizeof(Report);
-                reading_pos += sizeof(Report);
-                lseek(fd, reading_pos, SEEK_SET);
-            }
-        }
-        if(ftruncate(fd, size) != 0)
-        {
-            printf("There was a problem truncating the file\n");
-            if(fd) 
-                close(fd);
-            exit(-1);
-        }
-    }
-    if(fd) 
         close(fd);
-    return;
+        return;
+    }
+    // record is somewhere else
+    int read_position = delete_position + sizeof(Report);
+    int write_position = delete_position;
+    while (read_position < record_count*sizeof(Report))
+    {
+        lseek(fd, read_position, SEEK_SET);
+        if (read(fd, &r, sizeof(Report)) != sizeof(Report))
+        {
+            close(fd);
+            exit(-1);
+        }
+        lseek(fd, write_position, SEEK_SET);
+        if (write(fd, &r, sizeof(Report)) != sizeof(Report))
+        {
+            printf("There was a problem deleting the record!\n");
+            close(fd);
+            exit(-1);
+        }
+        read_position += sizeof(Report);
+        write_position += sizeof(Report);
+    }
+    if (ftruncate(fd, last_position) != 0)
+    {
+        printf("There was a problem truncating the file!\n");
+        close(fd);
+        exit(-1);
+    }
+    close(fd);
 }
+
 void update_threshold(const char *district_id, int severity_value)
 {
     /*update_threshold <district_id> <value> 
@@ -369,8 +371,8 @@ void filter()
 
 int parse_arguments(int argc, char *argv[], Command_arguments_t *cArgs)
 {
-    if(strcmp(argv[1], "--help")==0)
-    {   
+    if(argc==2 && strcmp(argv[1], "--help")==0)
+    {
         return 0;
     }
     if(strcmp(argv[1], "--role")!=0)
@@ -459,7 +461,7 @@ int log_operation(const char *district_id,const char *operation, Role role, cons
     if(role == ROLE_INSPECTOR) strcpy(the_role, "inspector");
     if(role == ROLE_MANAGER) strcpy(the_role, "manager");
     sprintf(path, "%s/logged_district", district_id);
-    int fd = open(path, O_APPEND | O_RDONLY);
+    int fd = open(path, O_APPEND | O_WRONLY);
     if(fd == -1) 
     {
         return -1;
@@ -467,7 +469,7 @@ int log_operation(const char *district_id,const char *operation, Role role, cons
 
     char line[100];
     char time_str[20];
-    time_t now;
+    time_t now={0};
     struct tm *current_time = localtime(&now);
     strftime(time_str, sizeof(time_str), "%x %X",current_time);
     sprintf(line, "%s, %s, %s, %s\n", operation, time_str, the_role, user); 
@@ -480,49 +482,89 @@ int log_operation(const char *district_id,const char *operation, Role role, cons
     return 0;
 }
 // modify checking the permissions for each role !!!
-int check_operation_permission(const char *filepath, Role role, const char *operation)
+int check_operation_permission(const char *filepath, Role role, const char *operation, const char *district_id)
 {
-    /* INSPECTOR
-    not allowed to add remove_report()
-    not allowed to update_threshold()
-    */
-    /* MANAGER
-    allowed to add
-    allowed to perform all operations
-    */    
     struct stat file_det;
-    if( lstat(filepath, &file_det)==-1 )
+    // see if the file exists
+    if(lstat(filepath, &file_det)==-1)
+    {
         return -1;
-    
-    mode_t bits = (file_det.st_mode & 0777);
+    }
 
-    // if(strstr(filepath, "reports.dat")!=NULL)
-    //     if(bits != 0664) return -1;
-
-    // if(strstr(filepath, "district.cfg")!=NULL)
-    //     if(bits != 0640) return -1;
-
-    // if(strstr(filepath, "logged_district")!=NULL)
-    //     if(bits != 0644) return -1;
-
+    mode_t file_bits = (file_det.st_mode & 0777);
+    mode_t expected_bits = 0000;
+    if(strstr(filepath, "reports.dat")!=NULL)
+    {
+        expected_bits = 0664;  // rw-rw-r--
+    }
+    else if(strstr(filepath, "district.cfg")!=NULL)
+    {
+        expected_bits = 0640;  // rw-r-----
+    }
+    else if(strstr(filepath, "logged_district")!=NULL)
+    {
+        expected_bits = 0644;  // rw-r--r--
+    }
+    // check file permissions
+    if(file_bits != expected_bits)
+    {
+        return -1;
+    }
+    // role check
     if(role == ROLE_INSPECTOR)
     {
+        // inspectors not allowed
         if(strcmp(operation, "--remove_report")==0 || strcmp(operation, "--update_threshold")==0)
         {
             return -1;
         }
+        
+        // list, view, filter operation
+        if(strcmp(operation, "--list")==0 || strcmp(operation, "--view")==0 || strcmp(operation, "--filter")==0)
+        {
+            if(!(file_bits & S_IRGRP))
+            {
+                return -1;
+            }
+        }
+        // add operation
+        if(strcmp(operation, "--add")==0)
+        {
+            if(!(file_bits & S_IWGRP))
+            {
+                 return -1;
+            }
+        }
     }
-    if(role == ROLE_MANAGER) 
-    {
-        return 0;
+    else if(role == ROLE_MANAGER)
+    {        
+        // add operation
+        if(strcmp(operation, "--add")==0 || strcmp(operation, "--remove_report")==0 || strcmp(operation, "--update_threshold")==0)
+        {
+            if(!(file_bits & S_IWUSR))
+            {
+                return -1;
+            }
+        }
+        // list, view, add operation
+        if(strcmp(operation, "--list")==0 || strcmp(operation, "--view")==0 || strcmp(operation, "--filter")==0)
+        {
+            if(!(file_bits & S_IRUSR))
+            {
+                return -1;
+            }
+        }
     }
     return 0;
 }
-
 int main(int argc, char *argv[])
 {
     // minimum number of arguments
-    if(argc < 6)
+    if(argc==2 && strcmp(argv[1], "--help")==0)
+    {
+        help();
+    }
+    else if(argc < 6)
     {
         printf("Incorect parameter structure!\n");
         help();
@@ -535,6 +577,7 @@ int main(int argc, char *argv[])
         help();
         exit(-1);
     }
+    
     char file_path[100];
     if(strcmp(commandArgs.command,"--add")==0 || strcmp(commandArgs.command,"--list")==0
     || strcmp(commandArgs.command,"--view")==0 || strcmp(commandArgs.command,"--remove_report")==0
@@ -549,17 +592,17 @@ int main(int argc, char *argv[])
     }
     
     // need to check the permission for the operation and role
-    if( check_operation_permission(file_path,commandArgs.role, commandArgs.command) !=0 )
+    if(check_operation_permission(file_path, commandArgs.role, commandArgs.command, commandArgs.district_id) != 0)
     {
         printf("Permissions for operation %s not met!\n", commandArgs.command);
         exit(-1);
     }
-    // perform the operation, reading will be done in main
+    // perform the operation, reading extra details will be done in main
+    char line[100];
     if(strcmp(commandArgs.command, "--add")==0)
     {
         Report r;
         strcpy(r.inspector_name, commandArgs.user);
-        char line[100];
         printf("Report ID: ");fgets(line, sizeof(line), stdin);sscanf(line,"%d\n", &r.id);
         printf("Category: "); fgets(line, sizeof(line), stdin); sscanf(line, "%[^\n]\n", r.category);
         printf("GPS_N: ");fgets(line, sizeof(line), stdin);sscanf(line,"%f\n", &r.GPS_N);
@@ -575,7 +618,8 @@ int main(int argc, char *argv[])
         sscanf(line, "%d:%d\n", &dt.tm_hour, &dt.tm_min);
         r.timestamp = mktime(&dt);
         printf("Write a small description(single-line): ");
-        fgets(r.description, sizeof(line)-1, stdin);
+        fgets(line, sizeof(line)-1, stdin);
+        sscanf(line, "%[^\n]\n", r.description);
                 
         // trying to add the report, if it does not add then r.id must be invalid 
         if(add(commandArgs.district_id, r) == -1)
@@ -592,7 +636,8 @@ int main(int argc, char *argv[])
     {
         int id;
         printf("ID of wanted report: ");
-        fscanf(stdin, "%d", &id);
+        fgets(line, sizeof(line)-1, stdin);
+        sscanf(line, "%d", &id);
         view(commandArgs.district_id, id);
     }
     if(strcmp(commandArgs.command, "--help")==0)
@@ -604,7 +649,8 @@ int main(int argc, char *argv[])
     {
         int r_id=0;;
         printf("ID of wanted report: ");
-        fscanf(stdin, "%d\n", &r_id);
+        fgets(line, sizeof(line)-1, stdin);
+        sscanf(line, "%d\n", &r_id);
         remove_report(commandArgs.district_id, r_id);
         log_operation(commandArgs.district_id, commandArgs.command, commandArgs.role, commandArgs.user);
     }
@@ -612,7 +658,8 @@ int main(int argc, char *argv[])
     {
         int new_thres=0;
         printf("New threshold :");
-        fscanf(stdin, "%d\n", &new_thres);
+        fgets(line, sizeof(line)-1, stdin);
+        sscanf(line,"%d\n", &new_thres);
         log_operation(commandArgs.district_id ,commandArgs.command, commandArgs.role, commandArgs.user);
     }
     return 0;

@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <stdlib.h>
+#include <sys/wait.h>
 
 typedef enum
 {
@@ -311,7 +312,6 @@ void remove_report(const char *district_id, int report_id)
     }
     close(fd);
 }
-
 void update_threshold(const char *district_id, int severity_value)
 {
     /*update_threshold <district_id> <value> 
@@ -365,6 +365,34 @@ void update_threshold(const char *district_id, int severity_value)
     if(current_dir)
         closedir(current_dir);
     return;
+}
+// deletes entire district folder and its symlink (if existing)
+int remove_district(const char *district_id)
+{
+    // can use unlink() to delete things
+    char path[100];
+    memset(path, 0, sizeof(path));
+    sprintf(path, "active-reports-%s", district_id);
+    if(unlink(path) == -1)
+    {
+        printf("could not delete the symlink!\n");
+    }
+    sprintf(path, "%s",  district_id);
+    pid_t kidpid = fork();
+    if(kidpid == -1)
+    {
+        return -1;
+    }
+    else if(kidpid == 0)
+    {
+        // execlp("ls", "ls", path, NULL); // safe option for now
+        execlp("rm", "rm", "-rf", path, NULL);
+    }
+    else
+    {
+        wait(NULL);
+    }
+    return 0;
 }
 // still need to make filter function
 void filter()
@@ -429,6 +457,7 @@ int parse_arguments(int argc, char *argv[], Command_arguments_t *cArgs)
         else if(strcmp(argv[5], "--remove_report")==0) strcpy(cArgs->command,"--remove_report");
         else if(strcmp(argv[5], "--update_threshold")==0) strcpy(cArgs->command,"--update_threshold");
         else if(strcmp(argv[5], "--filter")==0) strcpy(cArgs->command,"--filter");
+        else if(strcmp(argv[5], "--remove_district")==0) strcpy(cArgs->command,"--remove_district");
         else 
         {
             // printf("here6\n");
@@ -450,6 +479,7 @@ void help()
     printf("  --remove_report <district_id> <report_id>\n");
     printf("  --update_threshold <district_id> <value>\n");
     printf("  --filter <district_id> <condition1> [condition2 ...]\n");
+    printf("  --remove_district <district_id>\n");
     printf("  --help\n");
     return;
 }
@@ -485,6 +515,7 @@ int log_operation(const char *district_id,const char *operation, Role role, cons
     return 0;
 }
 // modify checking the permissions for each role !!!
+// must also add the check for remove_district command
 int check_operation_permission(const char *filepath, Role role, const char *operation, const char *district_id)
 {
     // for now
@@ -584,9 +615,10 @@ int main(int argc, char *argv[])
     }
     
     char file_path[100];
-    if(strcmp(commandArgs.command,"--add")==0 || strcmp(commandArgs.command,"--list")==0
+    if( strcmp(commandArgs.command,"--add")==0 || strcmp(commandArgs.command,"--list")==0
     || strcmp(commandArgs.command,"--view")==0 || strcmp(commandArgs.command,"--remove_report")==0
-    || strcmp(commandArgs.command,"--remove_report")==0 || strcmp(commandArgs.command,"--update_threshold")==0)
+    || strcmp(commandArgs.command,"--remove_report")==0 || strcmp(commandArgs.command,"--update_threshold")==0
+    || strcmp(commandArgs.command, "--remove_district")==0 )
     {
         strcpy(commandArgs.district_id, argv[6]);
         // building file path
@@ -666,6 +698,11 @@ int main(int argc, char *argv[])
         fgets(line, sizeof(line)-1, stdin);
         sscanf(line,"%d\n", &new_thres);
         log_operation(commandArgs.district_id ,commandArgs.command, commandArgs.role, commandArgs.user);
+    }
+    if(strcmp(commandArgs.command, "--remove_district")==0)
+    {
+        // printf("%s", commandArgs.district_id);
+        remove_district(commandArgs.district_id);
     }
     return 0;
 }

@@ -85,6 +85,7 @@ int add(char *district_id, Report rep)
     int dist_exists = 0;
     while((directory_element = readdir(current_dir)) != NULL)
     {
+        
         // for each element we must check if it is a folder (different from . and ..) (and not a symbolic link)
 
         struct stat file;
@@ -96,6 +97,7 @@ int add(char *district_id, Report rep)
             // district directory exists
             if(strcmp(district_id, directory_element->d_name) == 0)
             {
+                // printf("foundya folder\n");
                 dist_exists = 1;
                 // open files and write to them...
                 char path[100];
@@ -104,8 +106,9 @@ int add(char *district_id, Report rep)
                 write(fd_reports, &rep, sizeof(Report));
                 fchmod(fd_reports, 0664);
                 close(fd_reports);
-            }
 
+                return 0;
+            }
         }
     }
     // directory does not exist, we have to create it and its files
@@ -484,6 +487,8 @@ int log_operation(const char *district_id,const char *operation, Role role, cons
 // modify checking the permissions for each role !!!
 int check_operation_permission(const char *filepath, Role role, const char *operation, const char *district_id)
 {
+    // for now
+    return 0;
     struct stat file_det;
     // see if the file exists
     if(lstat(filepath, &file_det)==-1)

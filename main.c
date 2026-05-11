@@ -73,6 +73,10 @@ int create_dir_and_set_perm(const char *district_id)
 
     return 0;
 }
+// need to add functionality of checking if the symlink exists each time i add
+// if not, then make it
+// or just make an operation that runs everytime that checks all symlinks for hanging-ness
+// or missing for that matter
 int add(char *district_id, Report rep)
 {
     // parse each district directory for its id and
@@ -312,6 +316,8 @@ void remove_report(const char *district_id, int report_id)
     }
     close(fd);
 }
+// should also make it so that it reads line by line and then only rewrites
+// the line containing the threshold value
 void update_threshold(const char *district_id, int severity_value)
 {
     /*update_threshold <district_id> <value> 
@@ -366,7 +372,6 @@ void update_threshold(const char *district_id, int severity_value)
         closedir(current_dir);
     return;
 }
-// deletes entire district folder and its symlink (if existing)
 int remove_district(const char *district_id)
 {
     // can use unlink() to delete things
@@ -394,12 +399,11 @@ int remove_district(const char *district_id)
     }
     return 0;
 }
-// still need to make filter function
+// still need to make filter function!!!
 void filter()
 {
     return;
 }
-
 int parse_arguments(int argc, char *argv[], Command_arguments_t *cArgs)
 {
     if(argc==2 && strcmp(argv[1], "--help")==0)
@@ -467,7 +471,6 @@ int parse_arguments(int argc, char *argv[], Command_arguments_t *cArgs)
     // printf("hah, you've got to this point!\n");
     return 0;
 }
-
 void help()
 {
     // print instructions on program syntax
@@ -483,6 +486,7 @@ void help()
     printf("  --help\n");
     return;
 }
+// there is a problem with the date processing in this, must fix! - FIXED :checkmark:
 int log_operation(const char *district_id,const char *operation, Role role, const char *user)
 {
     // if the inspector is unable to write then
@@ -502,7 +506,7 @@ int log_operation(const char *district_id,const char *operation, Role role, cons
 
     char line[100];
     char time_str[20];
-    time_t now={0};
+    time_t now = time(NULL);
     struct tm *current_time = localtime(&now);
     strftime(time_str, sizeof(time_str), "%x %X",current_time);
     sprintf(line, "%s, %s, %s, %s\n", operation, time_str, the_role, user); 
@@ -514,79 +518,110 @@ int log_operation(const char *district_id,const char *operation, Role role, cons
     close(fd);
     return 0;
 }
-// modify checking the permissions for each role !!!
-// must also add the check for remove_district command
-int check_operation_permission(const char *filepath, Role role, const char *operation, const char *district_id)
+int check_operation_permission(const char *district_id, Role role, const char *operation, const char *user)
 {
-    // for now
-    return 0;
-    struct stat file_det;
-    // see if the file exists
-    if(lstat(filepath, &file_det)==-1)
+    char filepath[100];
+    struct stat file_stat;
+    
+    // case 1: remove_district - manager only, no file check cuz it wont hurt anything 
+    if (strcmp(operation, "--remove_district") == 0) 
     {
-        return -1;
-    }
-
-    mode_t file_bits = (file_det.st_mode & 0777);
-    mode_t expected_bits = 0000;
-    if(strstr(filepath, "reports.dat")!=NULL)
-    {
-        expected_bits = 0664;  // rw-rw-r--
-    }
-    else if(strstr(filepath, "district.cfg")!=NULL)
-    {
-        expected_bits = 0640;  // rw-r-----
-    }
-    else if(strstr(filepath, "logged_district")!=NULL)
-    {
-        expected_bits = 0644;  // rw-r--r--
-    }
-    // check file permissions
-    if(file_bits != expected_bits)
-    {
-        return -1;
-    }
-    // role check
-    if(role == ROLE_INSPECTOR)
-    {
-        // inspectors not allowed
-        if(strcmp(operation, "--remove_report")==0 || strcmp(operation, "--update_threshold")==0)
+        if (role != ROLE_MANAGER) 
         {
+            printf("Only managers can remove districts\n");
+            return -1;
+        }
+        return 0;
+    }
+    
+    // case 2: update_threshold - check district.cfg (must be 0640)
+    if (strcmp(operation, "--update_threshold") == 0)
+    {
+        if (role != ROLE_MANAGER)
+        {
+            printf("Only managers can update threshold\n");
             return -1;
         }
         
-        // list, view, filter operation
-        if(strcmp(operation, "--list")==0 || strcmp(operation, "--view")==0 || strcmp(operation, "--filter")==0)
+        sprintf(filepath, "%s/district.cfg", district_id);
+        if (lstat(filepath, &file_stat) == -1)
         {
-            if(!(file_bits & S_IRGRP))
-            {
-                return -1;
-            }
+            printf("File %s does not exist\n", filepath);
+            return -1;
         }
-        // add operation
-        if(strcmp(operation, "--add")==0)
-        {
-            if(!(file_bits & S_IWGRP))
-            {
-                 return -1;
-            }
+        
+        mode_t actual_perms = file_stat.st_mode & 0777;
+        if (actual_perms != 0640) {
+            printf("district.cfg has wrong permissions (expected 640, got %03o)\n", actual_perms);
+            return -1;
         }
+        
+        if (!(file_stat.st_mode & S_IWUSR)) {
+            printf("Manager lacks write permission on district.cfg\n");
+            return -1;
+        }
+        return 0;
     }
-    else if(role == ROLE_MANAGER)
-    {        
-        // add operation
-        if(strcmp(operation, "--add")==0 || strcmp(operation, "--remove_report")==0 || strcmp(operation, "--update_threshold")==0)
+    
+    // case 3: add operation - everything is permitted, in case file is not found it will be created
+    if (strcmp(operation, "--add") == 0)
+    {
+        return 0;
+    }
+    
+    // case 4: all other operations: list, view, remove_report, filter
+    // need to check if reports.dat exists
+    sprintf(filepath, "%s/reports.dat", district_id);
+    if (lstat(filepath, &file_stat) == -1)
+    {
+        printf("File %s does not exist\n", filepath);
+        return -1;
+    }
+    
+    // yes, then check reports.dat permissions (0664)
+    mode_t actual_perms = file_stat.st_mode & 0777;
+    if (actual_perms != 0664)
+    {
+        printf("reports.dat has wrong permissions (expected 664, got %03o)\n", actual_perms);
+        return -1;
+    }
+
+    if (role == ROLE_INSPECTOR) 
+    {
+        // inspector cannot remove reports
+        if (strcmp(operation, "--remove_report") == 0) 
         {
-            if(!(file_bits & S_IWUSR))
+            printf("Inspectors cannot remove reports\n");
+            return -1;
+        }
+        
+        // reading operations: list, view, filter
+        if (strcmp(operation, "--list") == 0 || strcmp(operation, "--view") == 0 || strcmp(operation, "--filter") == 0)
+        {
+            if (!(file_stat.st_mode & S_IRGRP))
             {
+                printf("Inspector lacks group read permission on reports.dat\n");
                 return -1;
             }
         }
-        // list, view, add operation
-        if(strcmp(operation, "--list")==0 || strcmp(operation, "--view")==0 || strcmp(operation, "--filter")==0)
+    } 
+    else if (role == ROLE_MANAGER)
+    {
+        // remove_report
+        if (strcmp(operation, "--remove_report") == 0)
         {
-            if(!(file_bits & S_IRUSR))
+            if (!(file_stat.st_mode & S_IWUSR))
             {
+                printf("Manager lacks owner write permission on reports.dat\n");
+                return -1;
+            }
+        }
+
+        if (strcmp(operation, "--list") == 0 || strcmp(operation, "--view") == 0 || strcmp(operation, "--filter") == 0)
+        {
+            if (!(file_stat.st_mode & S_IRUSR))
+            {
+                printf("Manager lacks owner read permission on reports.dat\n");
                 return -1;
             }
         }
@@ -614,57 +649,28 @@ int main(int argc, char *argv[])
         exit(-1);
     }
     
-    char file_path[100];
+    // char file_path[100];
     if( strcmp(commandArgs.command,"--add")==0 || strcmp(commandArgs.command,"--list")==0
     || strcmp(commandArgs.command,"--view")==0 || strcmp(commandArgs.command,"--remove_report")==0
     || strcmp(commandArgs.command,"--remove_report")==0 || strcmp(commandArgs.command,"--update_threshold")==0
     || strcmp(commandArgs.command, "--remove_district")==0 )
     {
         strcpy(commandArgs.district_id, argv[6]);
-        // building file path
-        if(strcmp(commandArgs.command, "--update_threshold")!=0)
-            sprintf(file_path, "%s/reports.dat", commandArgs.district_id);
-        else
-            sprintf(file_path, "%s/district.cfg", commandArgs.district_id);
+        // building file path - relocated to check_op_perm()
+        // if(strcmp(commandArgs.command, "--update_threshold")!=0)
+        //     sprintf(file_path, "%s/reports.dat", commandArgs.district_id);
+        // else
+        //     sprintf(file_path, "%s/district.cfg", commandArgs.district_id);
     }
     
     // need to check the permission for the operation and role
-    if(check_operation_permission(file_path, commandArgs.role, commandArgs.command, commandArgs.district_id) != 0)
+    if(check_operation_permission(commandArgs.district_id, commandArgs.role, commandArgs.command, commandArgs.district_id) != 0)
     {
         printf("Permissions for operation %s not met!\n", commandArgs.command);
         exit(-1);
     }
     // perform the operation, reading extra details will be done in main
     char line[100];
-    if(strcmp(commandArgs.command, "--add")==0)
-    {
-        Report r;
-        strcpy(r.inspector_name, commandArgs.user);
-        printf("Report ID: ");fgets(line, sizeof(line), stdin);sscanf(line,"%d\n", &r.id);
-        printf("Category: "); fgets(line, sizeof(line), stdin); sscanf(line, "%[^\n]\n", r.category);
-        printf("GPS_N: ");fgets(line, sizeof(line), stdin);sscanf(line,"%f\n", &r.GPS_N);
-        printf("GPS_E: "); fgets(line, sizeof(line), stdin); sscanf(line, "%f\n", &r.GPS_E);
-        printf("Severity: "); fgets(line, sizeof(line), stdin); sscanf(line, "%d\n", &r.severity_level);
-        //timestamp calculation
-        struct tm dt = {0};
-        printf("Date DD/MM/YYYY :");
-        fgets(line, sizeof(line), stdin);
-        sscanf(line, "%d/%d/%d\n", &dt.tm_mday, &dt.tm_mon, &dt.tm_year);
-        printf("Time HH:MM :");
-        fgets(line, sizeof(line), stdin);
-        sscanf(line, "%d:%d\n", &dt.tm_hour, &dt.tm_min);
-        r.timestamp = mktime(&dt);
-        printf("Write a small description(single-line): ");
-        fgets(line, sizeof(line)-1, stdin);
-        sscanf(line, "%[^\n]\n", r.description);
-                
-        // trying to add the report, if it does not add then r.id must be invalid 
-        if(add(commandArgs.district_id, r) == -1)
-        {
-            printf("Unable to add!\n");
-            exit(-1);
-        }
-    }
     if(strcmp(commandArgs.command, "--list")==0)
     {
         list(commandArgs.district_id);
@@ -681,7 +687,64 @@ int main(int argc, char *argv[])
     {
         help();
     }
+    if(strcmp(commandArgs.command, "--remove_district")==0)
+    {
+        // printf("%s", commandArgs.district_id);
+        remove_district(commandArgs.district_id);
+    }
     // these operations need to be logged by log_operation()
+    if(strcmp(commandArgs.command, "--add")==0)
+    {
+        Report r;
+        strcpy(r.inspector_name, commandArgs.user);
+        printf("Report ID: ");fgets(line, sizeof(line), stdin);sscanf(line,"%d\n", &r.id);
+        printf("Category: "); fgets(line, sizeof(line), stdin); sscanf(line, "%[^\n]\n", r.category);
+        printf("GPS_N: ");fgets(line, sizeof(line), stdin);sscanf(line,"%f\n", &r.GPS_N);
+        printf("GPS_E: "); fgets(line, sizeof(line), stdin); sscanf(line, "%f\n", &r.GPS_E);
+        printf("Severity: "); fgets(line, sizeof(line), stdin); sscanf(line, "%d\n", &r.severity_level);
+        //timestamp calculation
+        struct tm dt = {0};
+        printf("Date DD/MM/YYYY: ");
+        fgets(line, sizeof(line), stdin);
+        sscanf(line, "%d/%d/%d\n", &dt.tm_mday, &dt.tm_mon, &dt.tm_year);
+        printf("Time HH:MM: ");
+        fgets(line, sizeof(line), stdin);
+        sscanf(line, "%d:%d\n", &dt.tm_hour, &dt.tm_min);
+        r.timestamp = mktime(&dt);
+        printf("Write a small description (single-line): ");
+        fgets(line, sizeof(line)-1, stdin);
+        sscanf(line, "%[^\n]\n", r.description);
+                
+        // trying to add the report, if it does not add then r.id must be invalid 
+        if(add(commandArgs.district_id, r) == -1)
+        {
+            printf("Unable to add!\n");
+            exit(-1);
+        }
+        // here i need to add the SIGUSR1 sending to reports_monitor..
+        // first gotta check it is started, again using .monitor_pid file
+        int monitor_pid_fd = open(".monitor_pid", O_RDONLY);
+        // file does not exist, we notify
+        if(monitor_pid_fd == -1)
+        {
+            printf("Cannot read .monitor_pid file!\n");
+        }
+        else
+        {
+            int monitor_pid=0;
+            if( read(monitor_pid_fd, &monitor_pid, sizeof(pid_t)) != sizeof(pid_t))
+            {
+                printf("Unable to correctly read the pid from the file!\n");
+            }
+            else
+            {
+                // send SIGUSR1 to the monitor process
+                printf("monitor pid: %d\n", monitor_pid);
+                kill(monitor_pid, SIGUSR1);
+            }
+        }
+        log_operation(commandArgs.district_id, commandArgs.command, commandArgs.role, commandArgs.user);
+    }
     if(strcmp(commandArgs.command, "--remove_report")==0)
     {
         int r_id=0;;
@@ -698,11 +761,6 @@ int main(int argc, char *argv[])
         fgets(line, sizeof(line)-1, stdin);
         sscanf(line,"%d\n", &new_thres);
         log_operation(commandArgs.district_id ,commandArgs.command, commandArgs.role, commandArgs.user);
-    }
-    if(strcmp(commandArgs.command, "--remove_district")==0)
-    {
-        // printf("%s", commandArgs.district_id);
-        remove_district(commandArgs.district_id);
     }
     return 0;
 }

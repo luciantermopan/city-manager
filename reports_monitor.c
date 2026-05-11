@@ -52,15 +52,8 @@ int main()
 
     // finding the process' id
     pid_t process_id = getpid();
-    // writing it to file
-    char buf[10];
-    memset(buf, 0, sizeof(buf));
-    sprintf(buf, "%d", process_id);
-    
-    int no_digits_process = strlen(buf);
-    // printf("%s - %d digits\n", buf, no_digits_process);
-    
-    if( write(fd_w, buf, no_digits_process) != no_digits_process )
+        
+    if( write(fd_w, &process_id, sizeof(pid_t)) != sizeof(pid_t) )
     {
         printf("Unable to write the necessary amount of bytes to .monitor_pid file!\n");
         close(fd_w);
